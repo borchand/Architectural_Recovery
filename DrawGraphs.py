@@ -5,8 +5,10 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 class DrawGraphs(ReadFromRepo):
-    def __init__(self, owner, repo, path, fetch_data=True):
+    def __init__(self, owner, repo, path, fetch_data=True, list_of_relevant_modules=None):
         super().__init__(owner, repo, path, fetch_data)
+        self.list_of_relevant_modules = list_of_relevant_modules
+
 
     # a function to draw a graph
     def draw_graph(self, G, size, **args):
@@ -68,8 +70,13 @@ class DrawGraphs(ReadFromRepo):
         if "test" in module_name:
             return False
 
-
         if module_name.startswith(self.path):
+            if self.list_of_relevant_modules is not None:
+                for rel_module in self.list_of_relevant_modules:
+                    if module_name.startswith(rel_module):
+                        return True
+                else:
+                    return False
             return True
 
 
@@ -116,21 +123,41 @@ class DrawGraphs(ReadFromRepo):
 
         return aG
     
-    def draw_with_package_activity(self, G):
-        if not os.path.exists(f"top_level_packages.json"):
-            print(f"File top_level_packages.json does not exist")
+    def draw_with_package_activity(self, G, depth=1, cutoff=0, graphSize=(8,8), clean_name=None, multiplier=1):
+        if not os.path.exists(f"top_level_packages_{depth}.json"):
+            print(f"File top_level_packages_{depth}.json does not exist")
             return
-        with open(f"top_level_packages.json", 'r') as f:
+        with open(f"top_level_packages_{depth}.json", 'r') as f:
             package_activity = json.load(f)
         
         sizes = []
         
+        to_remove = []
+
         for n in G.nodes():
-            sizes.append(package_activity[n])
+            activity = 0
+            if n  in package_activity:
+                activity = package_activity[n]
+            if activity >= cutoff:
+                sizes.append(package_activity[n] * multiplier)
+            else:
+                to_remove.append(n)
 
-        self.draw_graph(G, (8, 8), node_size=sizes)
+        for n in to_remove:
+            G.remove_node(n)
 
-    def draw_with_line_count(self, G):
+        if not clean_name is None:
+            mapping = {}
+            for n in G.nodes():
+                if n.startswith(clean_name):
+                    mapping[n] = n.replace(clean_name, "")
+            print(f"Mapping: {mapping}")
+            G = nx.relabel_nodes(G, mapping)
+
+
+        self.draw_graph(G, graphSize, node_size=sizes)
+
+    def draw_with_line_count(self, G, depth=1, clean_name=None):
         if not os.path.exists(f"{self.owner}_{self.repo}_{self.path}_modules.json"):
             print(f"File {self.owner}_{self.repo}_{self.path}_modules.json does not exist")
             return
@@ -140,7 +167,7 @@ class DrawGraphs(ReadFromRepo):
         data_with_lines = {}
 
         for module_name, (imports, nr_lines) in data.items():
-            abstracted_module_name = super().top_level_package(module_name, 2)
+            abstracted_module_name = super().top_level_package(module_name, depth)
             if abstracted_module_name not in data_with_lines:
                 data_with_lines[abstracted_module_name] = 0
             data_with_lines[abstracted_module_name] += nr_lines
@@ -154,5 +181,13 @@ class DrawGraphs(ReadFromRepo):
                 sizes.append(0)
             else:
                 sizes.append(data_with_lines[n])
+        
+        if not clean_name is None:
+            mapping = {}
+            for n in G.nodes():
+                if n.startswith(clean_name):
+                    mapping[n] = n.replace(clean_name, "")
+            print(f"Mapping: {mapping}")
+            G = nx.relabel_nodes(G, mapping)
 
         self.draw_graph(G, (12, 12), node_size=sizes)
